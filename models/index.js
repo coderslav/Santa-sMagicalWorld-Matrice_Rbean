@@ -61,18 +61,17 @@ let Elf = db.define(
         },
         password: {
             type: DataTypes.STRING,
+            allowNull: false,
         },
     },
     {
         instanceMethods: {
-            generateHash(password) {
-                return md5(password);
-            },
             validPassword(password) {
                 let inputPass = md5(password);
                 return this.password === inputPass;
             },
         },
+        tableName: 'elves',
     }
 );
 
