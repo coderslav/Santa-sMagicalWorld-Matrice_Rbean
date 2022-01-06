@@ -35,18 +35,13 @@ let Toy = db.define(
             type: DataTypes.FLOAT,
             allowNull: false,
         },
-        category_id: {
-            type: DataTypes.INTEGER,
-            defaultValue: null,
-            references: {
-                model: 'categories',
-            },
-        },
     },
     {
         timestamps: false,
         tableName: 'toys',
     }
 );
+
+Toy.belongsTo(Category, { foreignKey: 'category', targetKey: 'name' });
 
 module.exports = { db, Category, Toy };
