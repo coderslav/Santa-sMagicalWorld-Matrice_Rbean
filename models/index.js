@@ -75,6 +75,20 @@ let Elf = db.define(
     }
 );
 
-Toy.belongsTo(Category, { foreignKey: 'category', targetKey: 'name' });
+let Wish = db.define(
+    'Wish',
+    {
+        'child name': {
+            type: DataTypes.STRING,
+            allowNull: false,
+        },
+    },
+    {
+        tableName: 'wishes',
+    }
+);
 
-module.exports = { db, Category, Toy, Elf };
+Toy.belongsTo(Category, { foreignKey: 'category', targetKey: 'name' });
+Wish.belongsTo(Toy, { foreignKey: 'toy_id', onDelete: 'NO ACTION' });
+
+module.exports = { db, Category, Toy, Elf, Wish };

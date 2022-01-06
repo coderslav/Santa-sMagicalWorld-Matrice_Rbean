@@ -1,7 +1,8 @@
-const { Toy, Category, Elf } = require('./models');
+const { Toy, Category, Elf, Wish } = require('./models');
 const md5 = require('md5');
 
 let express = require('express');
+const { RowDescriptionMessage } = require('pg-protocol/dist/messages');
 
 let app = express();
 const port = 3000;
@@ -18,7 +19,7 @@ function handleStringsToNumber(price) {
     return true;
 }
 function capitalize(string) {
-    return string.charAt(0).toUpperCase() + string.slice(1);
+    return typeof string === 'string' ? string.charAt(0).toUpperCase() + string.slice(1) : null;
 }
 function generateHash(password) {
     return md5(password);
@@ -39,7 +40,7 @@ app.all('/toys', async function (req, res) {
                         res.status(501).send(`Name "${req.body.category}" is not present in table "categories".`);
                         return;
                     default:
-                        res.json(error);
+                        res.status(501).send(error.name);
                         return;
                 }
             }
@@ -75,7 +76,7 @@ app.all('/toys/:id', async function (req, res) {
                             res.status(501).send(`Name "${req.body.category}" is not present in table "categories".`);
                             return;
                         default:
-                            res.json(error);
+                            res.status(501).send(error.name);
                             return;
                     }
                 }
@@ -88,8 +89,19 @@ app.all('/toys/:id', async function (req, res) {
             }
             res.json(selectedToy);
         } else if (req.method === 'DELETE') {
-            await selectedToy.destroy();
-            res.json(selectedToy);
+            try {
+                await selectedToy.destroy();
+                res.json(selectedToy);
+            } catch (error) {
+                switch (error.name) {
+                    case 'SequelizeForeignKeyConstraintError':
+                        res.status(501).send('Delete ERROR. This toy is still referenced from table "wishes". Children are waiting for their toys!');
+                        return;
+                    default:
+                        res.status(501).send(error.name);
+                        return;
+                }
+            }
         } else {
             res.sendStatus(404);
         }
@@ -132,7 +144,7 @@ app.all('/categories/:id', async function (req, res) {
                         res.status(501).send(`You can't delete this category. "${selectedCategory.name}" is still referenced from table "toys".`);
                         return;
                     default:
-                        res.json(error);
+                        res.status(501).send(error.name);
                         return;
                 }
             }
@@ -153,7 +165,7 @@ app.all('/categories/:name/toys', async function (req, res) {
 app.route('/elves')
     .get(async function (req, res) {
         let selectedElves = await Elf.findAll();
-        res.json(selectedElves);
+        selectedElves ? res.json(selectedElves) : res.sendStatus(404);
     })
     .post(async function (req, res) {
         if (req.body.password) {
@@ -171,50 +183,69 @@ app.route('/elves')
                     res.status(501).send("You can't create a new Elf with this data. Please check again your input.");
                     return;
                 default:
-                    res.send(error.name);
+                    res.status(501).send(error.name);
                     return;
             }
         }
     });
-
 app.route('/elves/:id')
+    .all(async function (req, res, next) {
+        req.body.selectedElf = await Elf.findByPk(req.params.id);
+        next();
+    })
     .get(async function (req, res) {
-        let selectedElf = await Elf.findByPk(req.params.id);
-        if (selectedElf) {
-            res.json(selectedElf);
+        if (req.body.selectedElf) {
+            res.json(req.body.selectedElf);
         } else {
             res.sendStatus(404);
         }
     })
     .put(async function (req, res) {
-        let selectedElf = await Elf.findByPk(req.params.id);
-        if (selectedElf) {
+        if (req.body.selectedElf) {
             if (req.body['first name']) {
-                selectedElf.update({ 'first name': req.body['first name'] });
+                req.body.selectedElf.update({ 'first name': req.body['first name'] });
             }
             if (req.body['last name']) {
-                selectedElf.update({ 'last name': req.body['last name'] });
+                req.body.selectedElf.update({ 'last name': req.body['last name'] });
             }
             if (req.body.login) {
-                selectedElf.update({ login: req.body.login });
+                req.body.selectedElf.update({ login: req.body.login });
             }
             if (req.body.password) {
-                selectedElf.update(generateHash(req.body.password));
+                req.body.selectedElf.update(generateHash(req.body.password));
             }
-            res.json(selectedElf);
+            res.json(req.body.selectedElf);
         } else {
             res.sendStatus(404);
         }
     })
     .delete(async function (req, res) {
-        let selectedElf = await Elf.findByPk(req.params.id);
-        if (selectedElf) {
-            selectedElf.destroy();
-            res.json(selectedElf);
+        if (req.body.selectedElf) {
+            req.body.selectedElf.destroy();
+            res.json(req.body.selectedElf);
         } else {
             res.sendStatus(404);
         }
     });
+
+// ++++++++++++++++++++++++++++++++++++++++++++++++ WISHES ++++++++++++++++++++++++++++++++++++++++
+
+app.get('/wishes/index', async function (req, res) {
+    let selectedWishes = await Wish.findAll();
+    selectedWishes ? res.json(selectedWishes) : res.sendStatus(404);
+});
+app.post('/wishes/create', async function (req, res) {
+    if (req.body['child name']) {
+        let selectedToy = await Toy.findOne({ where: { name: capitalize(req.body['toy name']) } });
+        if (selectedToy) {
+            res.json((await Wish.findOrCreate({ where: { 'child name': req.body['child name'], toy_id: selectedToy.id } }))[0]);
+        } else {
+            res.status(404).send('Toy not found:(');
+        }
+    } else {
+        res.status(404).send("Enter your name please, cute child! Otherwise I won't understand who to send the gift to.");
+    }
+});
 
 app.use(function (req, res, next) {
     res.sendStatus(404);
