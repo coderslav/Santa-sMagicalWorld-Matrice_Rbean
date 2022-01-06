@@ -1,4 +1,6 @@
 const { Sequelize, DataTypes } = require('sequelize');
+const md5 = require('md5');
+
 const dbPass = 'newpass';
 
 let db = new Sequelize('santa_world', 'postgres', dbPass, {
@@ -42,6 +44,38 @@ let Toy = db.define(
     }
 );
 
+let Elf = db.define(
+    'Elf',
+    {
+        'first name': {
+            type: DataTypes.STRING,
+            allowNull: false,
+        },
+        'last name': {
+            type: DataTypes.STRING,
+            allowNull: false,
+        },
+        login: {
+            type: DataTypes.STRING,
+            allowNull: false,
+        },
+        password: {
+            type: DataTypes.STRING,
+        },
+    },
+    {
+        instanceMethods: {
+            generateHash(password) {
+                return md5(password);
+            },
+            validPassword(password) {
+                let inputPass = md5(password);
+                return this.password === inputPass;
+            },
+        },
+    }
+);
+
 Toy.belongsTo(Category, { foreignKey: 'category', targetKey: 'name' });
 
-module.exports = { db, Category, Toy };
+module.exports = { db, Category, Toy, Elf };
