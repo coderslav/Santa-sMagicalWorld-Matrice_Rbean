@@ -1,8 +1,7 @@
-const { Toy, Category, Elf, Wish } = require('./models');
-const md5 = require('md5');
+const { Toy, Category, Elf, Wish, Schedule } = require('./models');
+const crypto = require('crypto');
 
 let express = require('express');
-const { RowDescriptionMessage } = require('pg-protocol/dist/messages');
 
 let app = express();
 const port = 3000;
@@ -22,7 +21,26 @@ function capitalize(string) {
     return typeof string === 'string' ? string.charAt(0).toUpperCase() + string.slice(1) : null;
 }
 function generateHash(password) {
-    return md5(password);
+    return crypto.createHash('md5').update(password).digest('hex');
+}
+async function randomElf() {
+    let allElves;
+    try {
+        allElves = await Elf.findAll();
+    } catch (error) {
+        return error.name;
+    }
+    let elvesIdList = [];
+    for (let index = 0; index < allElves.length; index++) {
+        elvesIdList.push(allElves[index].id);
+    }
+    for (let i = elvesIdList.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * i);
+        const temp = elvesIdList[i];
+        elvesIdList[i] = elvesIdList[j];
+        elvesIdList[j] = temp;
+    }
+    return elvesIdList[1];
 }
 
 // ++++++++++++++++++++++++++++++++++++++++++++ TOYS ++++++++++++++++++++++++++++++++++++++++++++
@@ -37,15 +55,18 @@ app.all('/toys', async function (req, res) {
             } catch (error) {
                 switch (error.name) {
                     case 'SequelizeForeignKeyConstraintError':
-                        res.status(501).send(`Name "${req.body.category}" is not present in table "categories".`);
+                        res.status(422).json(`Name "${req.body.category}" is not present in table "categories"!`);
+                        return;
+                    case 'SequelizeUniqueConstraintError':
+                        res.status(422).json('A toy with a similar name is already exists!');
                         return;
                     default:
-                        res.status(501).send(error.name);
+                        res.status(422).json(error.name);
                         return;
                 }
             }
         } else {
-            res.sendStatus(422);
+            res.status(422).json('Invalid data entered! Please note that the "name" and "price" of new Toy are required data.');
         }
     } else {
         res.sendStatus(404);
@@ -63,7 +84,7 @@ app.all('/toys/:id', async function (req, res) {
                         await selectedToy.update({ price: req.body.price });
                     }
                 } else {
-                    res.sendStatus(422);
+                    res.status(422).json('Value of the "price" is incorrect!');
                     return;
                 }
             }
@@ -73,10 +94,10 @@ app.all('/toys/:id', async function (req, res) {
                 } catch (error) {
                     switch (error.name) {
                         case 'SequelizeForeignKeyConstraintError':
-                            res.status(501).send(`Name "${req.body.category}" is not present in table "categories".`);
+                            res.status(422).json(`Name "${req.body.category}" is not present in table "categories"!`);
                             return;
                         default:
-                            res.status(501).send(error.name);
+                            res.status(422).json(error.name);
                             return;
                     }
                 }
@@ -95,10 +116,10 @@ app.all('/toys/:id', async function (req, res) {
             } catch (error) {
                 switch (error.name) {
                     case 'SequelizeForeignKeyConstraintError':
-                        res.status(501).send('Delete ERROR. This toy is still referenced from table "wishes". Children are waiting for their toys!');
+                        res.status(422).json('Delete ERROR! This toy is still referenced from table "wishes". Children are waiting for their toys!');
                         return;
                     default:
-                        res.status(501).send(error.name);
+                        res.status(422).json(error.name);
                         return;
                 }
             }
@@ -119,7 +140,7 @@ app.all('/categories', async function (req, res) {
         if (Object.keys(req.body).length === 1 && Object.keys(req.body).includes('name')) {
             res.json((await Category.findOrCreate({ where: { name: req.body.name } }))[0]);
         } else {
-            res.sendStatus(422);
+            res.status(422).json('Invalid data entered! Please note that the "name" of new Category is required data.');
         }
     } else {
         res.sendStatus(404);
@@ -141,10 +162,10 @@ app.all('/categories/:id', async function (req, res) {
             } catch (error) {
                 switch (error.name) {
                     case 'SequelizeForeignKeyConstraintError':
-                        res.status(501).send(`You can't delete this category. "${selectedCategory.name}" is still referenced from table "toys".`);
+                        res.status(422).json(`You can't delete this category! "${selectedCategory.name}" is still referenced from table "toys"`);
                         return;
                     default:
-                        res.status(501).send(error.name);
+                        res.status(422).json(error.name);
                         return;
                 }
             }
@@ -174,16 +195,15 @@ app.route('/elves')
         try {
             res.json((await Elf.findOrCreate({ where: req.body }))[0]);
         } catch (error) {
-            console.log(error.name);
             switch (error.name) {
                 case 'SequelizeValidationError':
-                    res.status(501).send('Please enter all the required data to create a new Elf: "first name", "last name", "login", "password".');
+                    res.status(422).json('Please enter all the required data to create a new Elf: "first name", "last name", "login", "password"!');
                     return;
                 case 'SequelizeDatabaseError':
-                    res.status(501).send("You can't create a new Elf with this data. Please check again your input.");
+                    res.status(422).json("You can't create a new Elf with this data! Please check again your input.");
                     return;
                 default:
-                    res.status(501).send(error.name);
+                    res.status(422).json(error.name);
                     return;
             }
         }
@@ -203,16 +223,16 @@ app.route('/elves/:id')
     .put(async function (req, res) {
         if (req.body.selectedElf) {
             if (req.body['first name']) {
-                req.body.selectedElf.update({ 'first name': req.body['first name'] });
+                await req.body.selectedElf.update({ 'first name': req.body['first name'] });
             }
             if (req.body['last name']) {
-                req.body.selectedElf.update({ 'last name': req.body['last name'] });
+                await req.body.selectedElf.update({ 'last name': req.body['last name'] });
             }
             if (req.body.login) {
-                req.body.selectedElf.update({ login: req.body.login });
+                await req.body.selectedElf.update({ login: req.body.login });
             }
             if (req.body.password) {
-                req.body.selectedElf.update(generateHash(req.body.password));
+                await req.body.selectedElf.update(generateHash(req.body.password));
             }
             res.json(req.body.selectedElf);
         } else {
@@ -221,7 +241,7 @@ app.route('/elves/:id')
     })
     .delete(async function (req, res) {
         if (req.body.selectedElf) {
-            req.body.selectedElf.destroy();
+            await req.body.selectedElf.destroy();
             res.json(req.body.selectedElf);
         } else {
             res.sendStatus(404);
@@ -238,12 +258,43 @@ app.post('/wishes/create', async function (req, res) {
     if (req.body['child name']) {
         let selectedToy = await Toy.findOne({ where: { name: capitalize(req.body['toy name']) } });
         if (selectedToy) {
-            res.json((await Wish.findOrCreate({ where: { 'child name': req.body['child name'], toy_id: selectedToy.id } }))[0]);
+            let createdWish = await Wish.findOrCreate({ where: { 'child name': req.body['child name'], toy_id: selectedToy.id } });
+            let randomElfId = await randomElf();
+            if (isNaN(randomElfId)) {
+                res.status(503).json("Sorry, I haven't available elves for deliver your wish :( Please, try again later!");
+                return;
+            }
+            if (!(await Schedule.findOne({ where: { wish_id: createdWish[0].id } }))) await Schedule.create({ wish_id: createdWish[0].id, elf_id: randomElfId });
+            res.json(createdWish[0]);
         } else {
-            res.status(404).send('Toy not found:(');
+            res.status(404).json('Toy not found:(');
         }
     } else {
-        res.status(404).send("Enter your name please, cute child! Otherwise I won't understand who to send the gift to.");
+        res.status(404).json("Enter your name please, cute child! Otherwise I won't understand who to send the gift to.");
+    }
+});
+
+// ++++++++++++++++++++++++++++++++++++++++++++ SCHEDULES ++++++++++++++++++++++++++++++++++++++++++++
+
+app.get('/schedules', async function (req, res) {
+    if (req.query.login && req.query.password) {
+        let selectedElf = await Elf.findOne({ where: { login: req.query.login, password: generateHash(req.query.password) } });
+        if (selectedElf) {
+            let selectedSchedules = await Schedule.findAll({ where: { elf_id: selectedElf.id } });
+            selectedSchedules.length > 0 ? selectedSchedules : res.json("You don't have missions yet. Check again later!");
+        } else {
+            res.status(404).json('The elf cannot be found! Wrong login or password.');
+        }
+    } else {
+        res.status(422).json('Access DENIED! Enter login and password please.');
+    }
+});
+app.put('/schedules/:id/done', async function (req, res) {
+    let selectedSchedule = await Schedule.findOne({ where: { id: req.params.id } });
+    if (selectedSchedule) {
+        selectedSchedule.done ? res.json(selectedSchedule) : res.json(await selectedSchedule.update({ done: true, done_at: new Date() }));
+    } else {
+        res.sendStatus(404);
     }
 });
 

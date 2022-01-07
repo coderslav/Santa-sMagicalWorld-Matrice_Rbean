@@ -1,5 +1,5 @@
 const { Sequelize, DataTypes } = require('sequelize');
-const md5 = require('md5');
+const crypto = require('crypto');
 
 const dbPass = 'newpass';
 
@@ -29,6 +29,7 @@ let Toy = db.define(
         name: {
             type: DataTypes.STRING,
             allowNull: false,
+            unique: true,
         },
         description: {
             type: DataTypes.TEXT,
@@ -65,12 +66,6 @@ let Elf = db.define(
         },
     },
     {
-        instanceMethods: {
-            validPassword(password) {
-                let inputPass = md5(password);
-                return this.password === inputPass;
-            },
-        },
         tableName: 'elves',
     }
 );
@@ -88,7 +83,27 @@ let Wish = db.define(
     }
 );
 
-Toy.belongsTo(Category, { foreignKey: 'category', targetKey: 'name' });
-Wish.belongsTo(Toy, { foreignKey: 'toy_id', onDelete: 'NO ACTION' });
+let Schedule = db.define(
+    'Schedule',
+    {
+        done: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false,
+            allowNull: false,
+        },
+        done_at: {
+            type: DataTypes.DATE,
+            defaultValue: null,
+        },
+    },
+    {
+        tableName: 'schedules',
+    }
+);
 
-module.exports = { db, Category, Toy, Elf, Wish };
+Toy.belongsTo(Category, { foreignKey: 'category', targetKey: 'name' });
+Wish.belongsTo(Toy, { foreignKey: { name: 'toy_id', allowNull: false }, onDelete: 'NO ACTION' });
+Schedule.belongsTo(Wish, { foreignKey: { name: 'wish_id', allowNull: false }, onDelete: 'NO ACTION' });
+Schedule.belongsTo(Elf, { foreignKey: { name: 'elf_id', allowNull: false }, onDelete: 'NO ACTION' });
+
+module.exports = { db, Category, Toy, Elf, Wish, Schedule };
